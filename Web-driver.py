@@ -11,16 +11,15 @@ import time
 
 def start_webdriver(url: str):
     # options 
-    options = Options()
-    options.add_argument("start-maximized")
-    options.add_argument("incognito")
-    # disable images for chrome
     chrome_options = webdriver.ChromeOptions()
+    chrome_options.add_argument("start-maximized")
+    chrome_options.add_argument("incognito")
+     # disable images for chrome
     prefs = {"profile.managed_default_content_settings.images": 2}
     chrome_options.add_experimental_option("prefs", prefs)
 
     # driver
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options, chrome_options=chrome_options)
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), chrome_options=chrome_options)
     driver.get(url)
 
     return driver
@@ -28,14 +27,14 @@ def start_webdriver(url: str):
 def get_discount_data(web_driver) -> list:
     # storage for saved content
     saved_content = []
-
+    time.sleep(5)
     # webdriverwait will wait for a certain class name to appear for 15 seconds 
     try:
         while True:
             # don't be spammy!
-            time.sleep(3)
+            time.sleep(1)
             # connect
-            base_column = WebDriverWait(web_driver, 15).until(
+            base_column = WebDriverWait(web_driver, 5).until(
                 EC.presence_of_element_located((By.CLASS_NAME, "p-retailer__base-column"))
             )
             price_boxes = base_column.find_elements_by_class_name("b-offer__root")
@@ -66,7 +65,7 @@ def get_discount_data(web_driver) -> list:
 
             # find load more button
             load_more_button = ""
-            WebDriverWait(web_driver, 15).until(
+            WebDriverWait(web_driver, 5).until(
                 EC.presence_of_all_elements_located((By.CLASS_NAME, "b-button__content"))
             )
             buttons = web_driver.find_elements(By.CLASS_NAME, "b-button__content")
@@ -82,9 +81,6 @@ def get_discount_data(web_driver) -> list:
             else:
                 load_more_button.click()
             
-            # sleep for a little bit on every page
-            # don't spam
-
     except Exception as error:
         print("ERROR!")
         print(error)
@@ -98,13 +94,61 @@ def display_saved_content(saved_content: list):
         print(f"Old price: {content[2]}")
         print(f"Dicount: {content[3]}")
 
-def main():
-    URL = "https://edadeal.ru/moskva/retailers/5ka"
+def save_content_to_database(saved_content: list):
+    connection = sqlite3.connect("content.db")
+    cursor = connection.cursor()
+    # check if there is a DB and crate it if there isn't
+    try:
+        cursor.execute("""
+                SELECT * FROM discounts
+    """)
+    except Exception as error:
+        print(error)
+        print("Error, db  doesn't exist, creating it...")
+        cursor.execute("""
+                CREATE TABLE discounts (
+                    product_name text,
+                    new_price real,
+                    old_price real,
+                    discount text
+                )
+        """)
+        connection.commit()
+    
+    # save our data
+    for single_item in saved_content:
+        product_name = single_item[0]
+        # only save products with prices
+        if single_item[1] == 'Not available': continue
+        else: new_price = float(single_item[1][:-2].replace(',', '.').replace(' ', ''))
+        if single_item[2] == 'Not available': continue
+        else: old_price = float(single_item[2][:-2].replace(',', '.').replace(' ', ''))
+        discount = single_item[3]
+        
+        #some errors may occure, so it's better to use try
+        try:
+            cursor.execute(f"""
+                    INSERT INTO discounts
+                    VALUES ('{product_name}', {new_price}, {old_price}, '{discount}')
+        """)
+        except Exception as error2:
+            print(f"Error!\n{error2}")
+        connection.commit()
 
+    connection.commit()
+    connection.close()
+    print("Data is saved!")
+
+def main():
+    URL = ''
+    with open('url.txt') as file:
+        URL = file.read()
+    
     driver = start_webdriver(URL)
     saved_content = get_discount_data(driver)
     display_saved_content(saved_content)
+    save_content_to_database(saved_content)
 
-
+# start of the program
 if __name__ == "__main__":
     main()
